@@ -224,7 +224,8 @@ class StanModel:
                  model_code=None, stanc_ret=None, include_paths=None,
                  boost_lib=None, eigen_lib=None, verbose=False,
                  obfuscate_model_name=True, extra_compile_args=None,
-                 allow_undefined=False, include_dirs=None, includes=None):
+                 extra_link_args=None, allow_undefined=False, 
+                 include_dirs=None, includes=None):
 
         if stanc_ret is None:
             stanc_ret = pystan.api.stanc(file=file,
@@ -277,7 +278,7 @@ class StanModel:
             include_dirs = []
         elif not isinstance(include_dirs, list):
             raise TypeError("'include_dirs' needs to be a list: type={}".format(type(include_dirs)))
-        include_dirs += [
+        include_dirs.extend([
             lib_dir,
             pystan_dir,
             os.path.join(pystan_dir, "stan", "src"),
@@ -285,9 +286,9 @@ class StanModel:
             os.path.join(pystan_dir, "stan", "lib", "stan_math", "lib", "eigen_3.3.3"),
             os.path.join(pystan_dir, "stan", "lib", "stan_math", "lib", "boost_1.69.0"),
             os.path.join(pystan_dir, "stan", "lib", "stan_math", "lib", "sundials_4.1.0", "include"),
-            np.get_include(),
-        ]
-
+            os.path.join(pystan_dir, "stan", "lib", "stan_math", "lib", "opencl_1.2.8"),
+            np.get_include()
+        ])
         model_cpp_file = os.path.join(lib_dir, self.model_cppname + '.hpp')
         if includes is not None:
             code = ""
@@ -353,13 +354,18 @@ class StanModel:
                 '-std=c++1y',
             ] + extra_compile_args
 
+        if extra_link_args is None:
+            extra_link_args = []
+        
         distutils.log.set_verbosity(verbose)
         extension = Extension(name=self.module_name,
                               language="c++",
                               sources=[pyx_file],
                               define_macros=stan_macros,
                               include_dirs=include_dirs,
-                              extra_compile_args=extra_compile_args)
+                              extra_compile_args=extra_compile_args,
+                              extra_link_args=extra_link_args,
+                              )
 
         cython_include_dirs = ['.', pystan_dir]
 
