@@ -26,7 +26,8 @@ import tempfile
 import time
 
 import distutils
-from distutils.core import Extension
+from distutils.core import Extension, Distribution
+from distutils.command.build_clib import build_clib
 
 import Cython
 from Cython.Build.Inline import _get_build_extension
@@ -40,6 +41,32 @@ import pystan.diagnostics
 
 logger = logging.getLogger('pystan')
 
+
+def _get_build_clib():
+    dist = Distribution()
+    config_files = dist.find_config_files()
+    dist.parse_config_files(config_files)
+    build_clibrary = build_clib(dist)
+    build_clibrary.finalize_options()
+    return build_clibrary
+
+def _build_clib(sources, include_dirs_c):
+    libraries = []
+    objects = []
+    for path in sources:
+        lib_name = os.path.splitext(os.path.split(item)[1])[0]
+        build_info = {
+            "sources" : [path],
+            "include_dirs" : include_dirs_c
+        }
+        libraries.append((lib_name, build_info))
+        objects.append(os.path.splitext(path) + ".o")
+
+    build_clibrary = get_build_clib()
+    build_clibrary.libraries = libraries
+    build_clibrary.include_dirs = include_dirs_c
+    build_clibrary.run()
+    return objects
 
 def load_module(module_name, module_path):
     """Load the module named `module_name` from  `module_path`
@@ -90,75 +117,6 @@ def _map_parallel(function, args, n_jobs):
     else:
         map_result = list(map(function, args))
     return map_result
-
-
-def edit_build_ext(build_extension):
-    """Override default build_ext.build_extension."""
-
-    def build_extension_cpp(self, ext):
-        sources = ext.sources
-        if sources is None or not isinstance(sources, (list, tuple)):
-            raise DistutilsSetupError(
-                  "in 'ext_modules' option (extension '%s'), "
-                  "'sources' must be present and must be "
-                  "a list of source filenames" % ext.name)
-        sources = sorted(sources)
-
-        ext_path = self.get_ext_fullpath(ext.name)
-        depends = sources + ext.depends
-        if not (self.force or newer_group(depends, ext_path, 'newer')):
-            log.debug("skipping '%s' extension (up-to-date)", ext.name)
-            return
-        else:
-            log.info("building '%s' extension", ext.name)
-
-        sources = self.swig_sources(sources, ext)
-
-        extra_args = ext.extra_compile_args or []
-
-        macros = ext.define_macros[:]
-        for undef in ext.undef_macros:
-            macros.append((undef,))
-
-        objects = self.compiler.compile(sources,
-                                         output_dir=self.build_temp,
-                                         macros=macros,
-                                         include_dirs=ext.include_dirs,
-                                         debug=self.debug,
-                                         extra_postargs=extra_args,
-                                         depends=ext.depends)
-
-        self._built_objects = objects[:]
-
-        if ext.extra_objects:
-            objects.extend(ext.extra_objects)
-        extra_args = ext.extra_link_args or []
-
-        # Detect target language, if not provided
-        language = ext.language or self.compiler.detect_language(sources)
-        if language == "c":
-            language = "c++"
-
-        self.compiler.link_shared_object(
-            objects, ext_path,
-            libraries=self.get_libraries(ext),
-            library_dirs=ext.library_dirs,
-            runtime_library_dirs=ext.runtime_library_dirs,
-            extra_postargs=extra_args,
-            export_symbols=self.get_export_symbols(ext),
-            debug=self.debug,
-            build_temp=self.build_temp,
-            target_lang=language)
-
-
-    if PY2:
-        import new
-        new.instancemethod(build_extension_cpp, build_extension, None)
-    else:
-        import types
-        types.MethodType(build_extension_cpp, build_extension)
-
-
 
 
 # NOTE: StanModel instance stores references to a compiled, uninstantiated
@@ -380,6 +338,15 @@ class StanModel:
                 if not any(item in path.replace("\\", "/") for item in sundials_excluded)
         ]
 
+        include_dirs = [
+            lib_dir,
+            os.path.join(pystan_dir, "stan", "lib", "stan_math", "lib", "sundials_4.1.0", "include"),
+            "-include", # hack
+            "stan_sundials_printf_override.hpp",
+        ]
+
+        sundials_objects = _build_clib(sundials_sources, include_dirs)
+
         stan_macros = [
             ('BOOST_RESULT_OF_USE_TR1', None),
             ('BOOST_NO_DECLTYPE', None),
@@ -431,9 +398,10 @@ class StanModel:
         distutils.log.set_verbosity(verbose)
         extension = Extension(name=self.module_name,
                               language="c++",
-                              sources=[pyx_file] + sundials_sources,
+                              sources=[pyx_file],
                               define_macros=stan_macros,
                               include_dirs=include_dirs,
+                              extra_objects=sundials_objects,
                               extra_compile_args=extra_compile_args)
 
         cython_include_dirs = ['.', pystan_dir]
