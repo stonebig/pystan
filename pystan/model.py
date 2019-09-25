@@ -62,7 +62,7 @@ def _build_clib(sources, include_dirs_c):
         libraries.append((lib_name, build_info))
         objects.append(os.path.splitext(path) + ".o")
 
-    build_clibrary = get_build_clib()
+    build_clibrary = _get_build_clib()
     build_clibrary.libraries = libraries
     build_clibrary.include_dirs = include_dirs_c
     build_clibrary.run()
@@ -411,9 +411,6 @@ class StanModel:
                                                quiet=not verbose)
         build_extension.build_temp = os.path.dirname(pyx_file)
         build_extension.build_lib = lib_dir
-
-        # redefine build_ext
-        edit_build_ext(build_extension.build_extension)
 
         redirect_stderr = not verbose and pystan.misc._has_fileno(sys.stderr)
         if redirect_stderr:
