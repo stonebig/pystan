@@ -60,7 +60,7 @@ def _build_clib(sources, include_dirs_c):
             "include_dirs" : include_dirs_c
         }
         libraries.append((lib_name, build_info))
-        objects.append(os.path.splitext(path) + ".o")
+        objects.append(os.path.splitext(path)[0] + ".o")
 
     build_clibrary = _get_build_clib()
     build_clibrary.libraries = libraries
