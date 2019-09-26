@@ -54,7 +54,7 @@ def _build_clib(sources, include_dirs_c):
     libraries = []
     objects = []
     for path in sources:
-        lib_name = os.path.splitext(os.path.split(item)[1])[0]
+        lib_name = os.path.splitext(os.path.split(path)[1])[0]
         build_info = {
             "sources" : [path],
             "include_dirs" : include_dirs_c
