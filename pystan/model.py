@@ -50,22 +50,31 @@ def _get_build_clib():
     build_clibrary.finalize_options()
     return build_clibrary
 
-def _build_clib(sources, include_dirs_c):
+def _build_clib(sources, include_dirs_c, lib_dir):
+    """Build C-library files."""
     libraries = []
-    objects = []
     for path in sources:
-        lib_name = os.path.splitext(os.path.split(path)[1])[0]
+        cfile_name = os.path.split(path)[1]
+        lib_name = os.path.splitext(cfile_name)[0]
         build_info = {
             "sources" : [path],
             "include_dirs" : include_dirs_c
         }
         libraries.append((lib_name, build_info))
-        objects.append(os.path.splitext(path)[0] + ".o")
-
+    
     build_clibrary = _get_build_clib()
     build_clibrary.libraries = libraries
     build_clibrary.include_dirs = include_dirs_c
+    build_clibrary.build_temp = lib_dir
+    build_clibrary.build_clib = lib_dir
     build_clibrary.run()
+    
+    objects = []
+    for _, build_info in libraries:
+        source = build_info["sources"]
+        obj = build_clibrary.compiler.object_filenames(source, output_dir=lib_dir)
+        objects.extend(obj)
+    
     return objects
 
 def load_module(module_name, module_path):
@@ -308,6 +317,9 @@ class StanModel:
             s = template.safe_substitute(model_cppname=self.model_cppname)
             outfile.write(s)
 
+        if extra_compile_args is None:
+            extra_compile_args = []
+            
         ## cvodes sources
 
         # cvodes sources are complied and linked together with the Stan model
@@ -337,15 +349,47 @@ class StanModel:
                 path for path in glob.glob("{}/**/*.c".format(sundials_src_path))
                 if not any(item in path.replace("\\", "/") for item in sundials_excluded)
         ]
-
-        include_dirs = [
+        
+        include_dirs_c = [
             lib_dir,
             os.path.join(pystan_dir, "stan", "lib", "stan_math", "lib", "sundials_4.1.0", "include"),
-            "-include", # hack
-            "stan_sundials_printf_override.hpp",
         ]
-
-        sundials_objects = _build_clib(sundials_sources, include_dirs)
+            
+        
+        if platform.platform().startswith('Win'):
+            if build_extension.compiler in (None, 'msvc'):
+                logger.warning("MSVC compiler is not supported")
+                include_dirs_c.extend([
+                    '/EHsc',
+                    '-DBOOST_DATE_TIME_NO_LIB'
+                ])
+            else:
+                # Windows, but not msvc, likely mingw
+                # fix bug in MingW-W64
+                # use posix threads
+                include_dirs_c.extend([
+                    '-O2',
+                    '-ftemplate-depth-256',
+                    '-Wno-unused-function',
+                    '-Wno-uninitialized',
+                    "-D_hypot=hypot",
+                    "-pthread",
+                    "-fexceptions",
+                    "-include",
+                    "stan_sundials_printf_override.hpp",
+                ] + [item for item in extra_compile_args if "std=c++" not in extra_compile_args])
+        else:
+            # linux or macOS
+            include_dirs_c.extend([
+                '-O2',
+                '-ftemplate-depth-256',
+                '-Wno-unused-function',
+                '-Wno-uninitialized',
+                '-include',
+                'stan_sundials_printf_override.hpp',
+            ] + [item for item in extra_compile_args if "std=c++" not in extra_compile_args])
+       
+        sundials_objects = _build_clib(sundials_sources, include_dirs_c, lib_dir)
 
         stan_macros = [
             ('BOOST_RESULT_OF_USE_TR1', None),
@@ -356,8 +400,6 @@ class StanModel:
         build_extension = _get_build_extension()
         # compile stan models with optimization (-O2)
         # (stanc is compiled without optimization (-O0) currently, see #33)
-        if extra_compile_args is None:
-            extra_compile_args = []
 
         if platform.platform().startswith('Win'):
             if build_extension.compiler in (None, 'msvc'):
