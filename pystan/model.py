@@ -319,7 +319,8 @@ class StanModel:
 
         if extra_compile_args is None:
             extra_compile_args = []
-            
+        
+        distutils.log.set_verbosity(verbose)
         ## cvodes sources
 
         # cvodes sources are complied and linked together with the Stan model
@@ -437,7 +438,6 @@ class StanModel:
                 'stan_sundials_printf_override.hpp',
             ] + extra_compile_args
 
-        distutils.log.set_verbosity(verbose)
         extension = Extension(name=self.module_name,
                               language="c++",
                               sources=[pyx_file],
